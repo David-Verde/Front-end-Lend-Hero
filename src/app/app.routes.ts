@@ -1,7 +1,17 @@
 import { Routes } from '@angular/router';
-import { LoginComponent } from './pages/login/login.component';
 
 export const routes: Routes = [
-  { path: 'login', component: LoginComponent },
-  { path: '', redirectTo: 'login', pathMatch: 'full' }, // Redirigir a login por defecto
+  {
+    path: 'login',
+    loadComponent: () =>
+      import('./pages/login/login.component').then((m) => m.LoginComponent),
+  },
+  {
+    path: 'forgot-password',
+    loadComponent: () =>
+      import('./pages/forgot-password/forgot-password.component').then(
+        (m) => m.ForgotPasswordComponent
+      ),
+  },
+  { path: '', redirectTo: 'login', pathMatch: 'full' },
 ];
