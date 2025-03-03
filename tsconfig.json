@@ -1,0 +1,22 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@/*": ["./*"]
+    },
+    "skipLibCheck": true, // Ignorar errores en las librerías
+    "esModuleInterop": true, // Permitir importaciones comunes
+    "jsx": "react-native", // Especificar el tipo de JSX
+    "lib": ["dom", "esnext"], // Incluir tipos para DOM y ES6+
+    "moduleResolution": "node", // Usar resolución de módulos de Node.js
+    "resolveJsonModule": true // Permitir importar archivos JSON
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": ["node_modules"] 
+}
