@@ -57,6 +57,7 @@ export default function GroupsScreen() {
     }
   };
   const renderItem = ({ item }) => (
+
     <TouchableOpacity onPress={() => router.push(`/group-details/${item._id}`)}>
       <Card style={styles.card}>
         <Card.Content>

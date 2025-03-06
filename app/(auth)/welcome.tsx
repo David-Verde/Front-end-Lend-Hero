@@ -5,17 +5,24 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Card, Title, Paragraph } from 'react-native-paper';
 import { formatCurrency } from '../utils/formatters';
-
+import userStore from '../store/userStore';
+import groupStore from '../store/groupStore'
 const {EXPO_PUBLIC_API_URL: API_URL} = process.env || 'http://localhost:5000';
 
 export default function Welcome() {
   const [user, setUser] = useState(null);
+  const {setUser: setUserStore } = userStore();
+  const {setGroup: setGroupStore } = groupStore();
   const [summary, setSummary] = useState({
     totalLent: 0,
     totalBorrowed: 0,
     pendingPayments: 0,
   });
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchUserData();
+  }, []);
 
   useEffect(() => {
     fetchUserData();
@@ -28,15 +35,34 @@ export default function Welcome() {
         router.replace('/sign-in');
         return;
       }
-
+  
       const response = await axios.get(`${API_URL}/api/auth/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-
+  
       if (response.data.success) {
         setUser(response.data.data);
+        setUserStore(response.data.data);
+  
+        // Obtener los detalles completos de los grupos
+        if (response.data.data.groups && response.data.data.groups.length > 0) {
+          const groupDetails = await Promise.all(
+            response.data.data.groups.map(async (group) => {
+              const groupResponse = await axios.get(`${API_URL}/api/groups/${group._id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              return groupResponse.data.data;
+            })
+          );
+  
+          // Guardar los grupos en el groupStore como un array
+          setGroupStore(groupDetails);
+        } else {
+          console.log('El usuario no pertenece a ningún grupo.');
+        }
+  
         fetchSummaryData(token);
       }
     } catch (error) {
@@ -46,6 +72,7 @@ export default function Welcome() {
       setLoading(false);
     }
   };
+
 
   const fetchSummaryData = async (token) => {
     try {
@@ -114,7 +141,7 @@ export default function Welcome() {
         </Card>
       </View>
 
-      <TouchableOpacity style={styles.button} onPress={() => router.push('/screens/loans')}>
+      <TouchableOpacity style={styles.button}  onPress={() => router.push('/screens/loans')}>
         <Text style={styles.buttonText}>Ver Préstamos</Text>
       </TouchableOpacity>
 

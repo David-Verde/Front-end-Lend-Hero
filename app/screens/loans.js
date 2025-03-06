@@ -11,6 +11,8 @@ import { showMessage } from 'react-native-flash-message';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Constants from 'expo-constants';
 import { formatCurrency } from '../utils/formatters';
+import userStore from '../store/userStore';
+import groupStore from '../store/groupStore';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL || 'http://localhost:5000';
 
@@ -28,6 +30,9 @@ const LoansScreen = ({ user }) => {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [confirmDialogVisible, setConfirmDialogVisible] = useState(false);
   const [actionType, setActionType] = useState('');
+  const { groups } = groupStore();
+  const { user: userfruta } = userStore();
+
 
   // Tab navigation state
   const [tabIndex, setTabIndex] = useState(0);
@@ -51,7 +56,6 @@ const LoansScreen = ({ user }) => {
   useEffect(() => {
     fetchLoansData();
   }, []);
-
 
   const approveLoan = async (loanId) => {
     try {
@@ -100,6 +104,7 @@ const LoansScreen = ({ user }) => {
       });
 
       if (response.data.success) {
+        console.log('Datos de préstamos:', response.data.data); // Depuración
         setLoans(response.data.data);
       }
     } catch (error) {
@@ -123,19 +128,34 @@ const LoansScreen = ({ user }) => {
       });
       return;
     }
-
+  
     setLoadingUsers(true);
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      if (!token) return;
-
-      const response = await axios.get(`${API_URL}/api/users/search?term=${searchTerm}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.data.success) {
-        setSearchResults(response.data.data.filter(u => u._id !== user._id));
+      // Verifica que los grupos estén disponibles y sean un array
+      if (!groups || !Array.isArray(groups) || groups.length === 0) {
+        console.log('No hay grupos disponibles o groups no es un array.');
+        return;
       }
+  
+      // Obtener los miembros de los grupos
+      const members = groups.flatMap(group => 
+        group.members
+          .filter(member => member.user !== null) // Filtra miembros con user no nulo
+          .map(member => member.user) // Extrae el objeto user
+      );
+  
+      console.log('Miembros de los grupos:', members); // Depuración
+  
+      // Filtrar los miembros por nombre o email
+      const filteredMembers = members.filter(member => 
+        member.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        member.email.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+  
+      console.log('Resultados filtrados:', filteredMembers); // Depuración
+  
+      // Actualizar los resultados de la búsqueda
+      setSearchResults(filteredMembers);
     } catch (error) {
       console.error('Error searching users:', error);
       showMessage({
@@ -325,40 +345,47 @@ const LoansScreen = ({ user }) => {
     }
   };
 
-  const renderItem = ({ item }) => (
-    <TouchableOpacity onPress={() => handleLoanPressed(item)}>
-      <Card style={styles.loanCard}>
-        <Card.Content>
-          <View style={styles.loanHeader}>
-            <Title>{item.description}</Title>
-            <Text style={getLoanStatusStyle(item.status)}>
-              {getLoanStatusText(item.status)}
-            </Text>
-          </View>
-          
-          <View style={styles.loanParties}>
-            <Text>
-              {item.borrower._id === user._id 
-                ? `Prestamista: ${item.lender.name}` 
-                : `Prestatario: ${item.borrower.name}`}
-            </Text>
-          </View>
-          
-          <View style={styles.loanDetails}>
-            <Text style={styles.amountText}>Monto: {formatCurrency(item.amount)}</Text>
-            <Text>Fecha límite: {new Date(item.dueDate).toLocaleDateString()}</Text>
-            
-            {(item.status === 'ACTIVE' || item.status === 'COMPLETED' || item.status === 'LATE') && (
-              <View style={styles.paymentProgress}>
-                <Text>Pagado: {formatCurrency(item.payments.reduce((sum, p) => sum + p.amount, 0))}</Text>
-                <Text>Restante: {formatCurrency(item.amount - item.payments.reduce((sum, p) => sum + p.amount, 0))}</Text>
-              </View>
-            )}
-          </View>
-        </Card.Content>
-      </Card>
-    </TouchableOpacity>
-  );
+  const renderItem = ({ item }) => {
+    if (!item || !item.lender || !item.borrower) {
+      return null; // O muestra un componente de error
+    }
+  
+    return (
+      <TouchableOpacity onPress={() => handleLoanPressed(item)}>
+        <Card style={styles.loanCard}>
+          <Card.Content>
+            <View style={styles.loanHeader}>
+              <Title>{item.description || 'Sin descripción'}</Title>
+              <Text style={getLoanStatusStyle(item.status)}>
+                {getLoanStatusText(item.status)}
+              </Text>
+            </View>
+  
+            <View style={styles.loanParties}>
+              <Text>
+                {item.borrower._id !== userfruta._id
+                  ? `Prestamista: ${item.lender.name || 'Sin nombre'}`
+                  : `Prestatario: ${item.borrower.name || 'Sin nombre'}`
+                 }
+              </Text>
+            </View>
+  
+            <View style={styles.loanDetails}>
+              <Text style={styles.amountText}>Monto: {formatCurrency(item.amount)}</Text>
+              <Text>Fecha límite: {new Date(item.dueDate).toLocaleDateString()}</Text>
+  
+              {(item.status === 'ACTIVE' || item.status === 'COMPLETED' || item.status === 'LATE') && (
+                <View style={styles.paymentProgress}>
+                  <Text>Pagado: {formatCurrency(item.payments.reduce((sum, p) => sum + p.amount, 0))}</Text>
+                  <Text>Restante: {formatCurrency(item.amount - item.payments.reduce((sum, p) => sum + p.amount, 0))}</Text>
+                </View>
+              )}
+            </View>
+          </Card.Content>
+        </Card>
+      </TouchableOpacity>
+    );
+  };
 
   const onChangeDatePicker = (event, selectedDate) => {
     const currentDate = selectedDate || newLoan.dueDate;
@@ -464,19 +491,24 @@ const LoansScreen = ({ user }) => {
         <Modal
           visible={userSearchModal}
           onDismiss={() => setUserSearchModal(false)}
-          contentContainerStyle={styles.modalContainer}
+          contentContainerStyle={[styles.modalContainer, { zIndex: 1000 }]} // Asegúrate de que este modal esté encima
         >
           <Title style={styles.modalTitle}>Buscar prestamista</Title>
           <View style={styles.searchContainer}>
             <TextInput
               label="Buscar por nombre o email"
               value={searchTerm}
-              onChangeText={setSearchTerm}
+              onChangeText={(text) => {
+                setSearchTerm(text); // Actualiza el término de búsqueda
+                if (text.length >= 3) {
+                  searchUsers(); // Realiza la búsqueda si el término tiene al menos 3 caracteres
+                }
+              }}
               style={styles.searchInput}
               right={
                 <TextInput.Icon
                   icon="magnify"
-                  onPress={searchUsers}
+                  onPress={searchUsers} // Llama a searchUsers al presionar el ícono
                   disabled={loadingUsers}
                 />
               }
