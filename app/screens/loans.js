@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
 import { 
-  Card, Title, Paragraph, Text, FAB, Modal, 
-  Portal, Button, TextInput, RadioButton, Divider, Dialog 
+  Card, Title, Text, FAB, Modal, 
+  Portal, Button, TextInput, RadioButton, Dialog 
 } from 'react-native-paper';
 import { TabView, SceneMap, TabBar } from 'react-native-tab-view';
 import axios from 'axios';
@@ -21,10 +21,7 @@ const LoansScreen = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [userSearchModal, setUserSearchModal] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -33,15 +30,12 @@ const LoansScreen = ({ user }) => {
   const { groups } = groupStore();
   const { user: userfruta } = userStore();
 
-
-  // Tab navigation state
   const [tabIndex, setTabIndex] = useState(0);
   const [routes] = useState([
     { key: 'received', title: 'Recibidos' },
     { key: 'given', title: 'Otorgados' },
   ]);
 
-  // Form states for new loan
   const [newLoan, setNewLoan] = useState({
     lenderId: '',
     lenderName: '',
@@ -52,46 +46,14 @@ const LoansScreen = ({ user }) => {
     installmentsCount: '1',
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [usersList, setUsersList] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showUsersList, setShowUsersList] = useState(false);
 
   useEffect(() => {
     fetchLoansData();
+    loadAvailableLenders();
   }, []);
-
-  const approveLoan = async (loanId) => {
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      const response = await axios.put(`${API_URL}/api/loans/${loanId}/approve`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-  
-      if (response.data.success) {
-        Alert.alert('Éxito', 'Préstamo aprobado correctamente');
-        fetchLoansData();
-      }
-    } catch (error) {
-      console.error('Error approving loan:', error);
-      Alert.alert('Error', 'No se pudo aprobar el préstamo');
-    }
-  };
-
-  const makePayment = async (loanId, amount) => {
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      const response = await axios.post(`${API_URL}/api/loans/${loanId}/payment`, {
-        amount
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-  
-      if (response.data.success) {
-        Alert.alert('Éxito', 'Pago realizado correctamente');
-        fetchLoansData();
-      }
-    } catch (error) {
-      console.error('Error making payment:', error);
-      Alert.alert('Error', 'No se pudo realizar el pago');
-    }
-  };
 
   const fetchLoansData = async () => {
     setLoading(true);
@@ -104,7 +66,6 @@ const LoansScreen = ({ user }) => {
       });
 
       if (response.data.success) {
-        console.log('Datos de préstamos:', response.data.data); // Depuración
         setLoans(response.data.data);
       }
     } catch (error) {
@@ -120,52 +81,41 @@ const LoansScreen = ({ user }) => {
     }
   };
 
-  const searchUsers = async () => {
-    if (searchTerm.length < 3) {
-      showMessage({
-        message: 'Ingresa al menos 3 caracteres para buscar',
-        type: 'info',
-      });
-      return;
-    }
-  
+  const loadAvailableLenders = async () => {
     setLoadingUsers(true);
     try {
-      // Verifica que los grupos estén disponibles y sean un array
       if (!groups || !Array.isArray(groups) || groups.length === 0) {
         console.log('No hay grupos disponibles o groups no es un array.');
         return;
       }
-  
-      // Obtener los miembros de los grupos
+
       const members = groups.flatMap(group => 
         group.members
-          .filter(member => member.user !== null) // Filtra miembros con user no nulo
-          .map(member => member.user) // Extrae el objeto user
+          .filter(member => member.user !== null)
+          .map(member => member.user)
       );
-  
-      console.log('Miembros de los grupos:', members); // Depuración
-  
-      // Filtrar los miembros por nombre o email
-      const filteredMembers = members.filter(member => 
-        member.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        member.email.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-  
-      console.log('Resultados filtrados:', filteredMembers); // Depuración
-  
-      // Actualizar los resultados de la búsqueda
-      setSearchResults(filteredMembers);
+
+      setUsersList(members);
     } catch (error) {
-      console.error('Error searching users:', error);
+      console.error('Error loading users:', error);
       showMessage({
         message: 'Error',
-        description: 'No se pudo realizar la búsqueda de usuarios',
+        description: 'No se pudo cargar la lista de prestamistas',
         type: 'danger',
       });
     } finally {
       setLoadingUsers(false);
     }
+  };
+
+  const selectUser = (user) => {
+    setNewLoan({
+      ...newLoan,
+      lenderId: user._id,
+      lenderName: user.name,
+    });
+    setSearchTerm(user.name);
+    setShowUsersList(false);
   };
 
   const handleCreateLoan = async () => {
@@ -215,83 +165,6 @@ const LoansScreen = ({ user }) => {
     }
   };
 
-  const handlePayment = async () => {
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      if (!token || !selectedLoan) return;
-
-      const paymentData = {
-        amount: parseFloat(paymentAmount),
-      };
-
-      const response = await axios.post(
-        `${API_URL}/api/loans/${selectedLoan._id}/payment`,
-        paymentData,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      if (response.data.success) {
-        showMessage({
-          message: 'Éxito',
-          description: 'Pago realizado correctamente',
-          type: 'success',
-        });
-        setPaymentModalVisible(false);
-        setPaymentAmount('');
-        setSelectedLoan(null);
-        fetchLoansData();
-      }
-    } catch (error) {
-      console.error('Error making payment:', error);
-      showMessage({
-        message: 'Error',
-        description: 'No se pudo realizar el pago',
-        type: 'danger',
-      });
-    }
-  };
-
-  const handleApproveReject = async (approve) => {
-    try {
-      const token = await AsyncStorage.getItem('authToken');
-      if (!token || !selectedLoan) return;
-
-      const endpoint = approve ? 
-        `${API_URL}/api/loans/${selectedLoan._id}/approve` : 
-        `${API_URL}/api/loans/${selectedLoan._id}/reject`;
-
-      const response = await axios.put(
-        endpoint,
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      if (response.data.success) {
-        showMessage({
-          message: 'Éxito',
-          description: approve ? 
-            'Préstamo aprobado correctamente' : 
-            'Préstamo rechazado correctamente',
-          type: 'success',
-        });
-        setConfirmDialogVisible(false);
-        setSelectedLoan(null);
-        fetchLoansData();
-      }
-    } catch (error) {
-      console.error('Error updating loan status:', error);
-      showMessage({
-        message: 'Error',
-        description: 'No se pudo actualizar el estado del préstamo',
-        type: 'danger',
-      });
-    }
-  };
-
   const resetLoanForm = () => {
     setNewLoan({
       lenderId: '',
@@ -302,6 +175,8 @@ const LoansScreen = ({ user }) => {
       paymentType: 'LUMP_SUM',
       installmentsCount: '1',
     });
+    setSearchTerm('');
+    setShowUsersList(false);
   };
 
   const onRefresh = () => {
@@ -321,21 +196,9 @@ const LoansScreen = ({ user }) => {
     return statusMap[status] || status;
   };
 
-  const selectUser = (user) => {
-    setNewLoan({
-      ...newLoan,
-      lenderId: user._id,
-      lenderName: user.name
-    });
-    setUserSearchModal(false);
-    setSearchTerm('');
-    setSearchResults([]);
-  };
-
   const handleLoanPressed = (loan) => {
     setSelectedLoan(loan);
     
-    // Determine which actions are available based on loan status and user role
     if (loan.borrower._id === user._id && 
        (loan.status === 'APPROVED' || loan.status === 'ACTIVE' || loan.status === 'LATE')) {
       setPaymentModalVisible(true);
@@ -347,7 +210,7 @@ const LoansScreen = ({ user }) => {
 
   const renderItem = ({ item }) => {
     if (!item || !item.lender || !item.borrower) {
-      return null; // O muestra un componente de error
+      return null;
     }
   
     return (
@@ -393,7 +256,6 @@ const LoansScreen = ({ user }) => {
     setNewLoan({ ...newLoan, dueDate: currentDate });
   };
 
-  // Helper function for status styles
   const getLoanStatusStyle = (status) => {
     let backgroundColor;
     switch (status) {
@@ -416,7 +278,6 @@ const LoansScreen = ({ user }) => {
     };
   };
 
-  // Tab view rendering
   const renderReceivedLoans = () => (
     <FlatList
       data={loans.loansReceived}
@@ -486,75 +347,6 @@ const LoansScreen = ({ user }) => {
         label="Solicitar préstamo"
       />
 
-      {/* Modal para buscar usuarios */}
-      <Portal>
-        <Modal
-          visible={userSearchModal}
-          onDismiss={() => setUserSearchModal(false)}
-          contentContainerStyle={[styles.modalContainer, { zIndex: 1000 }]} // Asegúrate de que este modal esté encima
-        >
-          <Title style={styles.modalTitle}>Buscar prestamista</Title>
-          <View style={styles.searchContainer}>
-            <TextInput
-              label="Buscar por nombre o email"
-              value={searchTerm}
-              onChangeText={(text) => {
-                setSearchTerm(text); // Actualiza el término de búsqueda
-                if (text.length >= 3) {
-                  searchUsers(); // Realiza la búsqueda si el término tiene al menos 3 caracteres
-                }
-              }}
-              style={styles.searchInput}
-              right={
-                <TextInput.Icon
-                  icon="magnify"
-                  onPress={searchUsers} // Llama a searchUsers al presionar el ícono
-                  disabled={loadingUsers}
-                />
-              }
-            />
-          </View>
-
-          {loadingUsers ? (
-            <View style={styles.loadingUsers}>
-              <Text>Buscando usuarios...</Text>
-            </View>
-          ) : (
-            <>
-              {searchResults.length > 0 ? (
-                <FlatList
-                  data={searchResults}
-                  keyExtractor={(item) => item._id}
-                  renderItem={({ item }) => (
-                    <TouchableOpacity onPress={() => selectUser(item)}>
-                      <View style={styles.userItem}>
-                        <Text style={styles.userName}>{item.name}</Text>
-                        <Text style={styles.userEmail}>{item.email}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  )}
-                  ItemSeparatorComponent={() => <Divider />}
-                  style={styles.usersList}
-                />
-              ) : (
-                searchTerm.length >= 3 && (
-                  <Text style={styles.noResults}>No se encontraron resultados</Text>
-                )
-              )}
-            </>
-          )}
-
-          <Button 
-            mode="outlined" 
-            onPress={() => setUserSearchModal(false)}
-            style={styles.cancelButton}
-          >
-            Cancelar
-          </Button>
-        </Modal>
-      </Portal>
-
-      {/* Modal para crear préstamo */}
       <Portal>
         <Modal
           visible={modalVisible}
@@ -563,15 +355,34 @@ const LoansScreen = ({ user }) => {
         >
           <Title style={styles.modalTitle}>Solicitar préstamo</Title>
           
-          <TouchableOpacity
-            style={styles.lenderSelector}
-            onPress={() => setUserSearchModal(true)}
-          >
-            <Text style={styles.lenderSelectorLabel}>
-              {newLoan.lenderName || 'Seleccionar prestamista'}
-            </Text>
-            <Text style={styles.lenderSelectorIcon}>👤</Text>
-          </TouchableOpacity>
+          <TextInput
+            label="Buscar prestamista"
+            value={searchTerm}
+            onChangeText={(text) => {
+              setSearchTerm(text);
+              setShowUsersList(text.length > 0);
+            }}
+            onFocus={() => setShowUsersList(true)}
+            style={styles.input}
+          />
+
+          {showUsersList && (
+            <FlatList
+              data={usersList.filter(user => 
+                user.name.toLowerCase().includes(searchTerm.toLowerCase())
+              )}
+              keyExtractor={(item) => item._id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.userItem}
+                  onPress={() => selectUser(item)}
+                >
+                  <Text>{item.name}</Text>
+                </TouchableOpacity>
+              )}
+              style={styles.usersList}
+            />
+          )}
 
           <TextInput
             label="Monto"
@@ -652,7 +463,6 @@ const LoansScreen = ({ user }) => {
         </Modal>
       </Portal>
 
-      {/* Modal para pagos */}
       <Portal>
         <Modal
           visible={paymentModalVisible}
@@ -711,7 +521,6 @@ const LoansScreen = ({ user }) => {
         </Modal>
       </Portal>
 
-      {/* Diálogo de confirmación para aprobar/rechazar */}
       <Portal>
         <Dialog
           visible={confirmDialogVisible}
@@ -765,7 +574,7 @@ const styles = StyleSheet.create({
   },
   loansList: {
     padding: 16,
-    paddingBottom: 80, // Space for FAB
+    paddingBottom: 80,
   },
   loanCard: {
     marginBottom: 12,
@@ -822,21 +631,14 @@ const styles = StyleSheet.create({
   input: {
     marginBottom: 16,
   },
-  lenderSelector: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#bdbdbd',
-    borderRadius: 4,
-    padding: 16,
+  usersList: {
+    maxHeight: 200,
     marginBottom: 16,
   },
-  lenderSelectorLabel: {
-    color: '#757575',
-  },
-  lenderSelectorIcon: {
-    fontSize: 18,
+  userItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#bdbdbd',
   },
   dateSelector: {
     borderWidth: 1,
@@ -872,49 +674,6 @@ const styles = StyleSheet.create({
   submitButton: {
     flex: 1,
     marginLeft: 8,
-  },
-  searchContainer: {
-    marginBottom: 16,
-  },
-  searchInput: {
-    marginBottom: 8,
-  },
-  loadingUsers: {
-    padding: 16,
-    alignItems: 'center',
-  },
-  usersList: {
-    maxHeight: 200,
-    marginBottom: 16,
-  },
-  userItem: {
-    padding: 12,
-  },
-  userName: {
-    fontWeight: 'bold',
-  },
-  userEmail: {
-    color: '#757575',
-    fontSize: 12,
-  },
-  noResults: {
-    textAlign: 'center',
-    marginVertical: 16,
-    color: '#757575',
-  },
-  paymentLoanInfo: {
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  paymentAmountInfo: {
-    fontSize: 14,
-    marginBottom: 4,
-  },
-  paymentPendingInfo: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    color: '#f44336',
   },
 });
 
