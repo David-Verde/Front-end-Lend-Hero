@@ -16,7 +16,7 @@ import groupStore from '../store/groupStore';
 
 const API_URL = Constants.expoConfig?.extra?.API_URL || 'http://localhost:5000';
 
-const LoansScreen = ({ user }) => {
+const LoansScreen = ({ navigation, user }) => {
   const [loans, setLoans] = useState({ loansGiven: [], loansReceived: [] });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -197,21 +197,115 @@ const LoansScreen = ({ user }) => {
   };
 
   const handleLoanPressed = (loan) => {
+    console.log('Loan:', loan); // Depuración
+    console.log('Userfruta:', userfruta); // Depuración
+  
+    if (!loan || !loan.borrower || !loan.lender || !userfruta) {
+      console.error('Loan object or user is undefined or missing required properties');
+      return;
+    }
+  
     setSelectedLoan(loan);
-    
-    if (loan.borrower._id === user._id && 
-       (loan.status === 'APPROVED' || loan.status === 'ACTIVE' || loan.status === 'LATE')) {
+  
+    // Verifica si el prestamista es el usuario actual
+    const isLender = loan.lender === userfruta._id;
+  
+    // Verifica si el prestatario es el usuario actual
+    const isBorrower = loan.borrower._id === userfruta._id;
+  
+    if (isBorrower && (loan.status === 'APPROVED' || loan.status === 'ACTIVE' || loan.status === 'LATE')) {
       setPaymentModalVisible(true);
-    } else if (loan.lender._id === user._id && loan.status === 'PENDING') {
+    } else if (isLender && loan.status === 'PENDING') {
       setConfirmDialogVisible(true);
       setActionType('approval');
     }
   };
+  const handlePayment = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token || !selectedLoan) return;
+  
+      if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+        showMessage({
+          message: 'Error',
+          description: 'Por favor ingresa un monto válido',
+          type: 'warning',
+        });
+        return;
+      }
+  
+      const response = await axios.post(
+        `${API_URL}/api/loans/${selectedLoan._id}/payment`,
+        { amount: parseFloat(paymentAmount) },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+  
+      if (response.data.success) {
+        showMessage({
+          message: 'Éxito',
+          description: 'Pago realizado correctamente',
+          type: 'success',
+        });
+        setPaymentModalVisible(false);
+        setPaymentAmount('');
+        fetchLoansData();
+      }
+    } catch (error) {
+      console.error('Error making payment:', error);
+      showMessage({
+        message: 'Error',
+        description: 'No se pudo realizar el pago',
+        type: 'danger',
+      });
+    }
+  };
+
+  const handleApproveReject = async (approve) => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const response = await axios.put(
+        `${API_URL}/api/loans/${selectedLoan._id}/${approve ? 'approve' : 'reject'}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (response.data.success) {
+        showMessage({
+          message: 'Éxito',
+          description: `Préstamo ${approve ? 'aprobado' : 'rechazado'} correctamente`,
+          type: 'success',
+        });
+        setConfirmDialogVisible(false);
+        fetchLoansData();
+      }
+    } catch (error) {
+      console.error('Error updating loan status:', error);
+      showMessage({
+        message: 'Error',
+        description: `No se pudo ${approve ? 'aprobar' : 'rechazar'} el préstamo`,
+        type: 'danger',
+      });
+    }
+  };
 
   const renderItem = ({ item }) => {
-    if (!item || !item.lender || !item.borrower) {
+    console.log('Rendering item:', item); // Depuración
+    console.log('Userfruta:', userfruta); // Depuración
+  
+    if (!item || !item.borrower || !item.lender || !userfruta) {
+      console.error('Item or userfruta is undefined or missing required properties');
       return null;
     }
+  
+    // Verificar si el usuario actual es el prestamista o el prestatario
+    const isLender = item.lender._id === userfruta._id; // El usuario actual es el prestamista
+    const isBorrower = item.borrower === userfruta._id; // El usuario actual es el prestatario
+  
+    // Obtener el nombre del prestamista
+    const lenderName = isLender ? 'Usted es el prestamista' : userfruta.name;
+  
+    // Obtener el nombre del prestatario
+    const borrowerName = isBorrower ? 'Usted es el prestatario' : item.borrower.name;
   
     return (
       <TouchableOpacity onPress={() => handleLoanPressed(item)}>
@@ -225,12 +319,10 @@ const LoansScreen = ({ user }) => {
             </View>
   
             <View style={styles.loanParties}>
-              <Text>
-                {item.borrower._id !== userfruta._id
-                  ? `Prestamista: ${item.lender.name || 'Sin nombre'}`
-                  : `Prestatario: ${item.borrower.name || 'Sin nombre'}`
-                 }
-              </Text>
+              {/* Mostrar "Usted es el prestamista" o el nombre del prestamista */}
+              <Text>Prestamista: {lenderName}</Text>
+              {/* Mostrar "Prestatario: [nombre]" */}
+              <Text>Prestatario: {borrowerName}</Text>
             </View>
   
             <View style={styles.loanDetails}>
@@ -244,12 +336,30 @@ const LoansScreen = ({ user }) => {
                 </View>
               )}
             </View>
+  
+            {item.lender._id === userfruta._id && item.status === 'PENDING' && (
+              <View style={styles.actionButtons}>
+                <Button
+                  mode="contained"
+                  onPress={() => handleApproveReject(true)}
+                  style={styles.approveButton}
+                >
+                  Aprobar
+                </Button>
+                <Button
+                  mode="contained"
+                  onPress={() => handleApproveReject(false)}
+                  style={styles.rejectButton}
+                >
+                  Rechazar
+                </Button>
+              </View>
+            )}
           </Card.Content>
         </Card>
       </TouchableOpacity>
     );
   };
-
   const onChangeDatePicker = (event, selectedDate) => {
     const currentDate = selectedDate || newLoan.dueDate;
     setShowDatePicker(false);
@@ -280,7 +390,7 @@ const LoansScreen = ({ user }) => {
 
   const renderReceivedLoans = () => (
     <FlatList
-      data={loans.loansReceived}
+      data={loans?.loansReceived || []}
       renderItem={renderItem}
       keyExtractor={(item) => item._id}
       refreshControl={
@@ -299,7 +409,7 @@ const LoansScreen = ({ user }) => {
 
   const renderGivenLoans = () => (
     <FlatList
-      data={loans.loansGiven}
+      data={loans?.loansGiven || []}
       renderItem={renderItem}
       keyExtractor={(item) => item._id}
       refreshControl={
@@ -324,8 +434,8 @@ const LoansScreen = ({ user }) => {
   const renderTabBar = props => (
     <TabBar
       {...props}
-      indicatorStyle={{ backgroundColor: '#4CAF50' }}
-      style={{ backgroundColor: 'white' }}
+      indicatorStyle={{ backgroundColor: 'black' }}
+      style={{ backgroundColor: 'black' }}
       labelStyle={{ color: 'black' }}
     />
   );
@@ -369,7 +479,7 @@ const LoansScreen = ({ user }) => {
           {showUsersList && (
             <FlatList
               data={usersList.filter(user => 
-                user.name.toLowerCase().includes(searchTerm.toLowerCase())
+                user.name.toLowerCase().startsWith(searchTerm.toLowerCase())
               )}
               keyExtractor={(item) => item._id}
               renderItem={({ item }) => (
@@ -532,9 +642,9 @@ const LoansScreen = ({ user }) => {
           <Dialog.Title>Confirmar acción</Dialog.Title>
           <Dialog.Content>
             {actionType === 'approval' && (
-              <Paragraph>
+              <Text>
                 ¿Deseas aprobar o rechazar esta solicitud de préstamo?
-              </Paragraph>
+              </Text>
             )}
           </Dialog.Content>
           <Dialog.Actions>
@@ -674,6 +784,21 @@ const styles = StyleSheet.create({
   submitButton: {
     flex: 1,
     marginLeft: 8,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  approveButton: {
+    backgroundColor: '#4CAF50',
+    flex: 1,
+    marginRight: 5,
+  },
+  rejectButton: {
+    backgroundColor: '#F44336',
+    flex: 1,
+    marginLeft: 5,
   },
 });
 
